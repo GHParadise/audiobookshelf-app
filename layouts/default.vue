@@ -138,8 +138,13 @@ export default {
       this.attemptingConnection = true
 
       const deviceData = await this.$db.getDeviceData()
+      const skipSettings = await this.$localStore.getSkipSettings()
+
       let serverConfig = null
       if (deviceData) {
+        if (!deviceData.deviceSettings) deviceData.deviceSettings = {}
+        if (skipSettings) Object.assign(deviceData.deviceSettings, skipSettings)
+
         this.$store.commit('globals/setHapticFeedback', deviceData.deviceSettings?.hapticFeedback)
 
         if (deviceData.lastServerConnectionConfigId && deviceData.serverConnectionConfigs.length) {
@@ -360,6 +365,11 @@ export default {
       this.loadSavedSettings()
 
       const deviceData = await this.$db.getDeviceData()
+      const skipSettings = await this.$localStore.getSkipSettings()
+      if (deviceData) {
+        if (!deviceData.deviceSettings) deviceData.deviceSettings = {}
+        if (skipSettings) Object.assign(deviceData.deviceSettings, skipSettings)
+      }
       this.$store.commit('setDeviceData', deviceData)
 
       this.$setOrientationLock(this.$store.getters['getOrientationLockSetting'])

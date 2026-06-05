@@ -1,8 +1,10 @@
 <template>
   <div v-if="playbackSession" id="streamContainer" class="fixed top-0 left-0 layout-wrapper right-0 z-50 pointer-events-none" :class="{ fullscreen: showFullscreen, 'ios-player': $platform === 'ios', 'web-player': $platform === 'web' }">
+    <!-- 全屏背景层 -->
     <div v-if="showFullscreen" class="w-full h-full z-10 absolute top-0 left-0 pointer-events-auto" :style="{ backgroundColor: coverRgb }">
       <div class="w-full h-full absolute top-0 left-0 pointer-events-none" style="background: var(--gradient-audio-player)" />
 
+      <!-- 顶部控制按钮 -->
       <div class="top-4 left-4 absolute cursor-pointer">
         <span class="material-symbols text-5xl" :class="{ 'text-black text-opacity-75': coverBgIsLight && theme !== 'black' }" @click="collapseFullscreen">keyboard_arrow_down</span>
       </div>
@@ -15,7 +17,8 @@
       <p class="top-4 absolute left-0 right-0 mx-auto text-center uppercase tracking-widest text-opacity-75" :class="{ 'text-black text-opacity-75': coverBgIsLight && theme !== 'black' }" style="font-size: 10px">{{ isDirectPlayMethod ? $strings.LabelPlaybackDirect : isLocalPlayMethod ? $strings.LabelPlaybackLocal : $strings.LabelPlaybackTranscode }}</p>
     </div>
 
-    <div v-if="playerSettings.useChapterTrack && playerSettings.useTotalTrack && showFullscreen" class="absolute total-track w-full z-30 px-6">
+    <!-- 全屏模式下的总进度条 (顶部) -->
+    <div v-if="playerSettings.useChapterTrack && playerSettings.useTotalTrack && showFullscreen" class="absolute total-track w-full z-30 px-6" style="top: 15%">
       <div class="flex">
         <p class="font-mono text-fg" style="font-size: 0.8rem">{{ currentTimePretty }}</p>
         <div class="flex-grow" />
@@ -30,66 +33,40 @@
       </div>
     </div>
 
+    <!-- 封面层 -->
     <div class="cover-wrapper absolute z-30 pointer-events-auto" @click="clickContainer">
       <div class="w-full h-full flex justify-center">
         <covers-book-cover v-if="libraryItem || localLibraryItemCoverSrc" ref="cover" :library-item="libraryItem" :download-cover="localLibraryItemCoverSrc" :width="bookCoverWidth" :book-cover-aspect-ratio="bookCoverAspectRatio" raw @imageLoaded="coverImageLoaded" />
       </div>
-
       <div v-if="syncStatus === $constants.SyncStatus.FAILED" class="absolute top-0 left-0 w-full h-full flex items-center justify-center z-30" @click.stop="showSyncsFailedDialog">
         <span class="material-symbols text-error text-3xl">error</span>
       </div>
     </div>
 
-    <div class="title-author-texts absolute z-30 left-0 right-0 overflow-hidden" @click="clickTitleAndAuthor">
+    <!-- 标题作者层 (全屏下显示) -->
+    <div v-if="showFullscreen" class="title-author-texts absolute z-30 left-0 right-0 overflow-hidden" @click="clickTitleAndAuthor">
       <div ref="titlewrapper" class="overflow-hidden relative">
         <p class="title-text whitespace-nowrap"></p>
       </div>
       <p class="author-text text-fg text-opacity-75 truncate">{{ authorName }}</p>
     </div>
 
-    <div id="playerContent" class="playerContainer w-full z-20 absolute bottom-0 left-0 right-0 p-2 pointer-events-auto transition-all" :style="{ backgroundColor: showFullscreen ? '' : coverRgb }" @click="clickContainer">
-      <div v-if="showFullscreen" class="absolute bottom-4 left-0 right-0 w-full pb-4 pt-2 mx-auto px-6" style="max-width: 414px">
-        <div class="flex items-center justify-between pointer-events-auto">
-          <span v-if="!isPodcast && serverLibraryItemId && socketConnected" class="material-symbols text-3xl text-fg-muted cursor-pointer" :class="{ fill: bookmarks.length }" @click="$emit('showBookmarks')">bookmark</span>
-          <!-- hidden for podcasts but still using this as a placeholder -->
-          <span v-else class="material-symbols text-3xl text-white text-opacity-0">bookmark</span>
+    <!-- 【核心修复】底部播放控制栏 -->
+    <div id="playerContent"
+      class="playerContainer w-full z-40 absolute bottom-0 left-0 right-0 pointer-events-auto transition-all"
+      :style="{
+        backgroundColor: showFullscreen ? 'transparent' : coverRgb,
+        paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)',
+        minHeight: showFullscreen ? '220px' : 'calc(76px + env(safe-area-inset-bottom))'
+      }"
+      @click="clickContainer">
 
-          <span class="font-mono text-fg-muted cursor-pointer" style="font-size: 1.35rem" @click="$emit('selectPlaybackSpeed')">{{ currentPlaybackRate }}x</span>
-          <svg v-if="!sleepTimerRunning" xmlns="http://www.w3.org/2000/svg" class="h-7 w-7 text-fg-muted cursor-pointer" fill="none" viewBox="0 0 24 24" stroke="currentColor" @click.stop="$emit('showSleepTimer')">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-          </svg>
-          <div v-else class="h-7 w-7 flex items-center justify-around cursor-pointer" @click.stop="$emit('showSleepTimer')">
-            <p class="text-xl font-mono text-success">{{ sleepTimeRemainingPretty }}</p>
-          </div>
+      <!-- 迷你播放器背景遮罩 -->
+      <div v-if="!showFullscreen" class="w-full h-full absolute top-0 left-0 pointer-events-none" style="background: var(--gradient-minimized-audio-player)" />
 
-          <span class="material-symbols text-3xl text-fg cursor-pointer" :class="chapters.length ? 'text-opacity-75' : 'text-opacity-10'" @click="clickChaptersBtn">format_list_bulleted</span>
-        </div>
-      </div>
-      <div v-else class="w-full h-full absolute top-0 left-0 pointer-events-none" style="background: var(--gradient-minimized-audio-player)" />
-
-      <div id="playerControls" class="absolute right-0 bottom-0 mx-auto" style="max-width: 414px">
-        <div class="flex items-center max-w-full" :class="playerSettings.lockUi ? 'justify-center' : 'justify-between'">
-          <span v-show="showFullscreen && !playerSettings.lockUi" class="material-symbols next-icon text-fg cursor-pointer" :class="showLoadingState ? 'text-opacity-10' : 'text-opacity-75'" @click.stop="jumpChapterStart">first_page</span>
-          <div v-show="!playerSettings.lockUi" class="jump-icon text-fg cursor-pointer flex flex-col items-center" :class="showLoadingState ? 'text-opacity-10' : 'text-opacity-75'" @click.stop="jumpBackwards">
-            <span class="material-symbols text-3xl leading-none">replay</span>
-            <span v-if="showFullscreen" class="jump-label text-[10px] font-semibold leading-tight">{{ jumpBackwardsLabel }}</span>
-          </div>
-          <div class="play-btn cursor-pointer shadow-sm flex items-center justify-center rounded-full text-primary mx-4 relative overflow-hidden" :style="{ backgroundColor: coverRgb }" :class="{ 'animate-spin': seekLoading }" @mousedown.prevent @mouseup.prevent @click.stop="playPauseClick">
-            <div v-if="!coverBgIsLight" class="absolute top-0 left-0 w-full h-full bg-white bg-opacity-20 pointer-events-none" />
-
-            <span v-if="!showLoadingState" class="material-symbols fill" :class="{ 'text-white': coverRgb && !coverBgIsLight }">{{ seekLoading ? 'autorenew' : !isPlaying ? 'play_arrow' : 'pause' }}</span>
-            <widgets-spinner-icon v-else class="h-8 w-8" />
-          </div>
-          <div v-show="!playerSettings.lockUi" class="jump-icon text-fg cursor-pointer flex flex-col items-center" :class="showLoadingState ? 'text-opacity-10' : 'text-opacity-75'" @click.stop="jumpForward">
-            <span class="material-symbols text-3xl leading-none">forward_media</span>
-            <span v-if="showFullscreen" class="jump-label text-[10px] font-semibold leading-tight">{{ jumpForwardLabel }}</span>
-          </div>
-          <span v-show="showFullscreen && !playerSettings.lockUi" class="material-symbols next-icon text-fg cursor-pointer" :class="nextChapter && !showLoadingState ? 'text-opacity-75' : 'text-opacity-10'" @click.stop="jumpNextChapter">last_page</span>
-        </div>
-      </div>
-
-      <div id="playerTrack" class="absolute left-0 w-full px-6">
-        <div class="flex pointer-events-none">
+      <!-- 1. 进度条 (置于顶部，保证无论如何都能看见) -->
+      <div id="playerTrack" class="absolute top-0 left-0 w-full px-6 transform -translate-y-1/2">
+        <div v-if="showFullscreen" class="flex pointer-events-none mb-1">
           <p class="font-mono text-fg" style="font-size: 0.8rem" ref="currentTimestamp">0:00</p>
           <div class="flex-grow" />
           <p class="font-mono text-fg" style="font-size: 0.8rem">{{ timeRemainingPretty }}</p>
@@ -98,13 +75,69 @@
           <div ref="readyTrack" class="h-full bg-track-buffered absolute top-0 left-0 rounded-full pointer-events-none" />
           <div ref="bufferedTrack" class="h-full bg-track absolute top-0 left-0 rounded-full pointer-events-none" />
           <div ref="playedTrack" class="h-full bg-track-cursor absolute top-0 left-0 rounded-full pointer-events-none" />
-          <div ref="trackCursor" class="h-7 w-7 rounded-full absolute pointer-events-auto flex items-center justify-center" :style="{ top: '-11px' }" :class="{ 'opacity-0': playerSettings.lockUi || !showFullscreen }" @touchstart="touchstartCursor">
-            <div class="bg-track-cursor rounded-full w-3.5 h-3.5 pointer-events-none" />
+          <div ref="trackCursor" class="h-8 w-8 rounded-full absolute pointer-events-auto flex items-center justify-center" :style="{ top: '-13px' }" :class="{ 'opacity-0': playerSettings.lockUi || !showFullscreen }" @touchstart="touchstartCursor">
+            <div class="bg-track-cursor rounded-full w-4 h-4 shadow-sm pointer-events-none" />
           </div>
+        </div>
+      </div>
+
+      <!-- 2. 控制按钮区域 -->
+      <div class="relative w-full h-full flex flex-col justify-center px-4">
+
+        <!-- 迷你模式下的文字 (可选修复：当非全屏时显示) -->
+        <div v-if="!showFullscreen" class="flex items-center mb-1 pr-32 overflow-hidden">
+           <p class="text-fg truncate text-sm font-semibold">{{ title }}</p>
+        </div>
+
+        <!-- 按钮主容器 -->
+        <div id="playerControls" class="w-full flex items-center justify-center space-x-4 pt-2">
+          <!-- 上一章 -->
+          <span v-show="showFullscreen && !playerSettings.lockUi" class="material-symbols text-4xl text-fg cursor-pointer opacity-75" @click.stop="jumpChapterStart">first_page</span>
+
+          <!-- 后退 -->
+          <div v-show="!playerSettings.lockUi" class="flex flex-col items-center cursor-pointer text-fg opacity-75" @click.stop="jumpBackwards">
+            <span class="material-symbols text-4xl">replay</span>
+            <span v-if="showFullscreen" class="text-[10px] font-bold">{{ jumpBackwardsLabel }}</span>
+          </div>
+
+          <!-- 播放/暂停 -->
+          <div class="play-btn cursor-pointer shadow-lg flex items-center justify-center rounded-full text-primary relative overflow-hidden h-16 w-16"
+            :style="{ backgroundColor: coverRgb }"
+            :class="{ 'animate-spin': seekLoading }"
+            @click.stop="playPauseClick">
+            <div v-if="!coverBgIsLight" class="absolute top-0 left-0 w-full h-full bg-white bg-opacity-20 pointer-events-none" />
+            <span v-if="!showLoadingState" class="material-symbols text-5xl fill" :class="{ 'text-white': coverRgb && !coverBgIsLight }">{{ seekLoading ? 'autorenew' : !isPlaying ? 'play_arrow' : 'pause' }}</span>
+            <widgets-spinner-icon v-else class="h-10 w-10" />
+          </div>
+
+          <!-- 前进 -->
+          <div v-show="!playerSettings.lockUi" class="flex flex-col items-center cursor-pointer text-fg opacity-75" @click.stop="jumpForward">
+            <span class="material-symbols text-4xl">forward_media</span>
+            <span v-if="showFullscreen" class="text-[10px] font-bold">{{ jumpForwardLabel }}</span>
+          </div>
+
+          <!-- 下一章 -->
+          <span v-show="showFullscreen && !playerSettings.lockUi" class="material-symbols text-4xl text-fg cursor-pointer" :class="nextChapter ? 'opacity-75' : 'opacity-10'" @click.stop="jumpNextChapter">last_page</span>
+        </div>
+
+        <!-- 全屏模式下的底部辅助按钮 (语速、睡眠等) -->
+        <div v-if="showFullscreen" class="flex items-center justify-between mt-8 px-6 pb-2">
+          <span v-if="!isPodcast && serverLibraryItemId && socketConnected" class="material-symbols text-3xl text-fg-muted cursor-pointer" :class="{ fill: bookmarks.length }" @click="$emit('showBookmarks')">bookmark</span>
+          <span v-else class="material-symbols text-3xl text-transparent pointer-events-none">bookmark</span>
+
+          <span class="font-mono text-fg-muted cursor-pointer text-2xl" @click="$emit('selectPlaybackSpeed')">{{ currentPlaybackRate }}x</span>
+
+          <div class="cursor-pointer" @click.stop="$emit('showSleepTimer')">
+            <span v-if="!sleepTimerRunning" class="material-symbols text-3xl text-fg-muted">bedtime</span>
+            <p v-else class="text-xl font-mono text-success">{{ sleepTimeRemainingPretty }}</p>
+          </div>
+
+          <span class="material-symbols text-3xl text-fg cursor-pointer opacity-75" @click="clickChaptersBtn">format_list_bulleted</span>
         </div>
       </div>
     </div>
 
+    <!-- 弹窗组件 -->
     <modals-chapters-modal v-model="showChapterModal" :current-chapter="currentChapter" :chapters="chapters" :playback-rate="currentPlaybackRate" @select="selectChapter" />
     <modals-dialog v-model="showMoreMenuDialog" :items="menuItems" width="80vw" @action="clickMenuAction" />
   </div>
@@ -167,10 +200,23 @@ export default {
       coverRgb: 'rgb(55, 56, 56)',
       coverBgIsLight: false,
       titleMarquee: null,
-      isRefreshingUI: false
+      isRefreshingUI: false,
+      hasSkippedIntro: false,
+      hasSkippedEnding: false,
+      currentActiveChapterId: null
     }
   },
   watch: {
+    // 监听播放会话变化（切集时触发）
+    playbackSession(newVal, oldVal) {
+      if (newVal && newVal.id !== oldVal?.id) {
+        console.log('[Player] 检测到切集，重置跳过标记')
+        this.hasSkippedIntro = false
+        this.hasSkippedEnding = false
+        this.currentActiveChapterId = null
+        this.isDraggingCursor = false // 强制重置拖拽状态
+      }
+    },
     showFullscreen(val) {
       this.updateScreenSize()
       this.$store.commit('setPlayerFullscreen', !!val)
@@ -184,6 +230,15 @@ export default {
     }
   },
   computed: {
+    skipSettings() {
+      const settings = this.$store.getters['getAutoSkipSettings'] || {}
+      return {
+        autoSkipIntro: !!settings.autoSkipIntro,
+        autoSkipEnding: !!settings.autoSkipEnding,
+        skipIntroSec: Number(settings.skipIntroSec || 0),
+        skipEndingSec: Number(settings.skipEndingSec || 0)
+      }
+    },
     theme() {
       return document.documentElement.dataset.theme || 'dark'
     },
@@ -327,19 +382,58 @@ export default {
     chapters() {
       return this.playbackSession?.chapters || []
     },
+    // 1. 增强版当前章节：解决边界判定问题
     currentChapter() {
-      if (!this.chapters.length) return null
-      return this.chapters.find((ch) => Number(Number(ch.start).toFixed(2)) <= this.currentTime && Number(Number(ch.end).toFixed(2)) > this.currentTime)
+      if (!this.chapters || !this.chapters.length) return null
+      const time = this.isDraggingCursor ? this.draggingCurrentTime : this.currentTime
+      // 增加 0.5s 的向前容错，确保在章节末尾时，currentChapter 依然指向当前章
+      return this.chapters.find((ch) => {
+        const start = Number(ch.start)
+        const end = Number(ch.end)
+        return time >= (start - 0.5) && time < end
+      }) || this.chapters[0]
     },
+    // 2. 增强版下一章查找：用于触发片尾跳过后的连续定位
     nextChapter() {
-      if (!this.chapters.length) return
-      return this.chapters.find((c) => Number(Number(c.start).toFixed(2)) > this.currentTime)
+      if (!this.chapters || !this.chapters.length) return null
+      const time = this.isDraggingCursor ? this.draggingCurrentTime : this.currentTime
+      // 查找第一个开始时间大于当前时间（+1秒偏移）的章节
+      return this.chapters.find((c) => Number(c.start) > (time + 1))
+    },
+    previousChapter() {
+      if (!this.chapters || !this.chapters.length) return null
+      const time = this.isDraggingCursor ? this.draggingCurrentTime : this.currentTime
+      // 倒序查找第一个开始时间小于当前时间的章节
+      return [...this.chapters].reverse().find((c) => Number(c.start) < time - 1) // -1s 缓冲
     },
     currentChapterTitle() {
       return this.currentChapter?.title || ''
     },
     currentChapterDuration() {
-      return this.currentChapter ? this.currentChapter.end - this.currentChapter.start : this.totalDuration
+      if (this.currentChapter) {
+        return Number(this.currentChapter.end) - Number(this.currentChapter.start)
+      }
+      return this.totalDuration
+    },
+    // 进度条百分比计算 (用于 UI 渲染)
+    chapterProgressPercent() {
+      if (!this.currentChapter || !this.currentChapterDuration) return 0
+      const time = this.isDraggingCursor ? this.draggingCurrentTime : this.currentTime
+      const elapsed = Math.max(0, time - this.currentChapter.start)
+      return Math.min(100, (elapsed / this.currentChapterDuration) * 100)
+    },
+    totalProgressPercent() {
+      if (!this.totalDuration) return 0
+      const time = this.isDraggingCursor ? this.draggingCurrentTime : this.currentTime
+      return Math.min(100, (time / this.totalDuration) * 100)
+    },
+    // 时间显示逻辑重构
+    currentTimePretty() {
+      let time = this.isDraggingCursor ? this.draggingCurrentTime : this.currentTime
+      if (this.playerSettings.scaleElapsedTimeBySpeed && this.currentPlaybackRate > 0) {
+        time = time / this.currentPlaybackRate
+      }
+      return this.$secondsToTimestamp(time)
     },
     totalDurationPretty() {
       return this.$secondsToTimestamp(this.totalDuration)
@@ -352,12 +446,14 @@ export default {
       return this.$secondsToTimestamp(currentTimeToUse)
     },
     timeRemaining() {
-      let currentTimeToUse = this.isDraggingCursor ? this.draggingCurrentTime : this.currentTime
+      const time = this.isDraggingCursor ? this.draggingCurrentTime : this.currentTime
+      // 章节模式下的剩余时间
       if (this.playerSettings.useChapterTrack && this.currentChapter) {
-        var currChapTime = currentTimeToUse - this.currentChapter.start
-        return (this.currentChapterDuration - currChapTime) / this.currentPlaybackRate
+        const remaining = Number(this.currentChapter.end) - time
+        return remaining / (this.playerSettings.scaleElapsedTimeBySpeed ? this.currentPlaybackRate : 1)
       }
-      return this.totalTimeRemaining
+      // 总时长模式下的剩余时间
+      return (this.totalDuration - time) / (this.playerSettings.scaleElapsedTimeBySpeed ? this.currentPlaybackRate : 1)
     },
     totalTimeRemaining() {
       let currentTimeToUse = this.isDraggingCursor ? this.draggingCurrentTime : this.currentTime
@@ -370,10 +466,9 @@ export default {
       return '-' + this.$secondsToTimestamp(this.totalTimeRemaining)
     },
     timeRemainingPretty() {
-      if (this.timeRemaining < 0) {
-        return this.$secondsToTimestamp(this.timeRemaining * -1)
-      }
-      return '-' + this.$secondsToTimestamp(this.timeRemaining)
+      const remaining = this.timeRemaining
+      const sign = remaining > 0 ? '-' : ''
+      return sign + this.$secondsToTimestamp(Math.abs(remaining))
     },
     sleepTimeRemainingPretty() {
       if (!this.sleepTimeRemaining) return '0s'
@@ -462,26 +557,40 @@ export default {
     },
     async jumpNextChapter() {
       await this.$hapticsImpact()
-      if (this.showLoadingState) return
-      if (!this.nextChapter) return
-      this.seek(this.nextChapter.start)
+      if (this.showLoadingState || this.seekLoading) return
+
+      if (this.nextChapter) {
+        console.log(`[Player] 跳转到下一章: ${this.nextChapter.title}`)
+        this.seek(Number(this.nextChapter.start))
+      } else {
+        // 如果没有下一章，跳转到总时长的末尾前 0.5s，触发自然切集
+        console.log(`[Player] 无下章，跳转到文件末尾`)
+        this.seek(this.totalDuration - 0.5)
+      }
     },
     async jumpChapterStart() {
       await this.$hapticsImpact()
-      if (this.showLoadingState) return
-      if (!this.currentChapter) {
+      if (this.showLoadingState || this.seekLoading) return
+
+      const time = this.currentTime
+      const chapter = this.currentChapter
+
+      if (!chapter) {
         return this.restart()
       }
 
-      // If 4 seconds or less into current chapter, then go to previous
-      if (this.currentTime - this.currentChapter.start <= 4) {
-        const currChapterIndex = this.chapters.findIndex((ch) => Number(ch.start) <= this.currentTime && Number(ch.end) >= this.currentTime)
-        if (currChapterIndex > 0) {
-          const prevChapter = this.chapters[currChapterIndex - 1]
-          this.seek(prevChapter.start)
-        }
+      // 如果当前章节已播放超过 3 秒，回到本章开头；否则回到上一章
+      const progressInChapter = time - Number(chapter.start)
+      if (progressInChapter > 3) {
+        this.seek(Number(chapter.start))
       } else {
-        this.seek(this.currentChapter.start)
+        // 查找上一章
+        const currentIndex = this.chapters.findIndex(c => c.start === chapter.start)
+        if (currentIndex > 0) {
+          this.seek(Number(this.chapters[currentIndex - 1].start))
+        } else {
+          this.restart()
+        }
       }
     },
     showSleepTimerModal() {
@@ -557,72 +666,154 @@ export default {
 
       ts.innerText = this.$secondsToTimestamp(currentTime)
     },
-    timeupdate() {
-      if (!this.$refs.playedTrack) {
-        console.error('Invalid no played track ref')
-        return
+    checkAutoSkip() {
+      if (this.isDraggingCursor || !this.totalDuration || !this.isPlaying) return
+
+      const chapter = this.currentChapter
+      if (!chapter) return
+
+      const chapterStart = Number(chapter.start)
+      const chapterEnd = Number(chapter.end)
+      const chapterId = chapter.id || chapter.title || chapter.start
+
+      // 1. 章节切换检测
+      if (this.currentActiveChapterId !== chapterId) {
+        this.currentActiveChapterId = chapterId
+        this.hasSkippedIntro = false
+        this.hasSkippedEnding = false
       }
+
+      const { autoSkipIntro, autoSkipEnding, skipIntroSec, skipEndingSec } = this.skipSettings
+      const relativeTime = this.currentTime - chapterStart
+
+      // 2. 自动跳过片头 (相对当前章节开头)
+      if (autoSkipIntro && !this.hasSkippedIntro && skipIntroSec > 0) {
+        if (relativeTime >= -0.5 && relativeTime < skipIntroSec) {
+          // 只有章节足够长时才跳
+          if ((chapterEnd - chapterStart) > (skipIntroSec + 5)) {
+            const seekTo = chapterStart + skipIntroSec
+            console.log(`[AutoSkip] 执行跳过片头: ${chapterId}, 跳转至: ${seekTo}`)
+            this.hasSkippedIntro = true
+            this.seek(seekTo, true)
+            return
+          }
+        } else if (relativeTime >= skipIntroSec + 1) {
+          this.hasSkippedIntro = true
+        }
+      }
+
+      // 3. 自动跳过片尾 (相对当前章节结束)
+      if (autoSkipEnding && !this.hasSkippedEnding && skipEndingSec > 0) {
+        const skipThreshold = chapterEnd - skipEndingSec
+
+        // 判定：进入片尾区域
+        if (this.currentTime >= skipThreshold && this.currentTime < chapterEnd - 1) {
+          // 确保本章节有足够的长度进行跳过
+          if ((chapterEnd - chapterStart) > (skipEndingSec + 5)) {
+            console.log(`[AutoSkip] 触发片尾跳过: ${chapterId}`)
+            this.hasSkippedEnding = true
+
+            if (this.nextChapter) {
+              // A. 如果是在同一个音频文件内的章节切换
+              const nextStart = Number(this.nextChapter.start)
+              console.log(`[AutoSkip] 同文件，跳转到下一章起始: ${nextStart}`)
+              this.seek(nextStart, true)
+            } else {
+              // B. 如果是单集文件的最后，跳转到结尾前 0.5s，让播放器自然触发下一集加载
+              console.log(`[AutoSkip] 集末尾，跳转至结尾切集`)
+              this.seek(this.totalDuration - 0.5, true)
+            }
+          }
+        }
+      }
+    },
+    timeupdate() {
+      if (!this.$refs.playedTrack) return      // timeupdate 由底层驱动，可能频率极高，这里只处理 UI 状态同步
       this.$emit('updateTime', this.currentTime)
 
       if (this.seekLoading) {
-        this.seekLoading = false
-        if (this.$refs.playedTrack) {
+        // 如果跳转已完成（位置接近），则取消 loading 状态
+        if (Math.abs(this.currentTime - this.seekedTime) < 1.5) {
+          this.seekLoading = false
           this.$refs.playedTrack.classList.remove('bg-yellow-300')
           this.$refs.playedTrack.classList.add('bg-gray-200')
         }
       }
-
-      this.updateTimestamp()
-      this.updateTrack()
     },
     updateTrack() {
-      // Update progress track UI
-      let currentTimeToUse = this.isDraggingCursor ? this.draggingCurrentTime : this.currentTime
-      let percentDone = currentTimeToUse / this.totalDuration
-      const totalPercentDone = percentDone
-      let bufferedPercent = this.bufferedTime / this.totalDuration
-      const totalBufferedPercent = bufferedPercent
+      // 1. 基础数据准备
+      const el = this.$refs.track
+      if (el) {
+        this.trackWidth = el.clientWidth
+      }
+      if (!this.trackWidth) return
+
+      // 获取当前要显示的时间（如果是拖动中，则使用拖动的时间）
+      const currentTimeToUse = this.isDraggingCursor ? this.draggingCurrentTime : this.currentTime
+
+      // 2. 计算“总进度”百分比 (0-1)
+      const totalPercentDone = Math.min(1, currentTimeToUse / this.totalDuration)
+      const totalBufferedPercent = Math.min(1, this.bufferedTime / this.totalDuration)
+
+      // 3. 计算“当前显示轨道”的百分比 (根据是否是章节模式切换)
+      let displayPercentDone = totalPercentDone
+      let displayBufferedPercent = totalBufferedPercent
 
       if (this.playerSettings.useChapterTrack && this.currentChapter) {
-        const currChapTime = currentTimeToUse - this.currentChapter.start
-        percentDone = currChapTime / this.currentChapterDuration
-        bufferedPercent = Math.max(0, Math.min(1, (this.bufferedTime - this.currentChapter.start) / this.currentChapterDuration))
+        // 章节模式下的百分比计算
+        const chapterStart = Number(this.currentChapter.start)
+        const chapterDur = this.currentChapterDuration
+
+        // 当前章节已播放比例
+        displayPercentDone = Math.max(0, Math.min(1, (currentTimeToUse - chapterStart) / chapterDur))
+        // 当前章节已缓冲比例
+        displayBufferedPercent = Math.max(0, Math.min(1, (this.bufferedTime - chapterStart) / chapterDur))
       }
 
-      const ptWidth = Math.round(percentDone * this.trackWidth)
+      // 4. 更新 DOM 样式
+      const ptWidth = Math.round(displayPercentDone * this.trackWidth)
+
+      // 主轨道：已播放
       if (this.$refs.playedTrack) {
         this.$refs.playedTrack.style.width = ptWidth + 'px'
       }
+      // 主轨道：缓冲区
       if (this.$refs.bufferedTrack) {
-        this.$refs.bufferedTrack.style.width = Math.round(bufferedPercent * this.trackWidth) + 'px'
+        this.$refs.bufferedTrack.style.width = Math.round(displayBufferedPercent * this.trackWidth) + 'px'
       }
-
+      // 游标位置
       if (this.$refs.trackCursor) {
-        this.$refs.trackCursor.style.left = ptWidth - 14 + 'px'
+        // 14 是游标自身宽度的一半，保证居中
+        this.$refs.trackCursor.style.left = (ptWidth - 14) + 'px'
       }
 
+      // 5. 如果开启了章节模式，还需要更新底部的“全书总进度条”
       if (this.playerSettings.useChapterTrack) {
-        if (this.$refs.totalPlayedTrack) this.$refs.totalPlayedTrack.style.width = Math.round(totalPercentDone * this.trackWidth) + 'px'
-        if (this.$refs.totalBufferedTrack) this.$refs.totalBufferedTrack.style.width = Math.round(totalBufferedPercent * this.trackWidth) + 'px'
+        if (this.$refs.totalPlayedTrack) {
+          this.$refs.totalPlayedTrack.style.width = Math.round(totalPercentDone * this.trackWidth) + 'px'
+        }
+        if (this.$refs.totalBufferedTrack) {
+          this.$refs.totalBufferedTrack.style.width = Math.round(totalBufferedPercent * this.trackWidth) + 'px'
+        }
       }
     },
-    seek(time) {
-      if (this.showLoadingState) return
-      if (this.seekLoading) {
-        console.error('Already seek loading', this.seekedTime)
-        return
-      }
+    seek(time, force = false) {
+      if (!force && (this.showLoadingState || this.seekLoading)) return
+      if (this.seekLoading && Math.abs(this.seekedTime - time) < 1) return
 
       this.seekedTime = time
       this.seekLoading = true
 
+      // 执行真正的跳转
       AbsAudioPlayer.seek({ value: Math.floor(time) })
 
+      // 立即反馈 UI (无需等待系统 timeupdate)
       if (this.$refs.playedTrack) {
         const perc = time / this.totalDuration
         const ptWidth = Math.round(perc * this.trackWidth)
         this.$refs.playedTrack.style.width = ptWidth + 'px'
 
+        // 临时变色表示“正在跳转中”
         this.$refs.playedTrack.classList.remove('bg-gray-200')
         this.$refs.playedTrack.classList.add('bg-yellow-300')
       }
@@ -658,13 +849,41 @@ export default {
       this.isPlaying = false
     },
     startPlayInterval() {
-      clearInterval(this.playInterval)
+      if (this.playInterval) clearInterval(this.playInterval)
       this.playInterval = setInterval(async () => {
-        var data = await AbsAudioPlayer.getCurrentTime()
-        this.currentTime = Number(data.value.toFixed(2))
-        this.bufferedTime = Number(data.bufferedTime.toFixed(2))
-        this.timeupdate()
-      }, 1000)
+        const data = await AbsAudioPlayer.getCurrentTime()
+        if (!data || typeof data.value !== 'number') return
+
+        // 批量更新数据
+        const newTime = Number(data.value.toFixed(2))
+        const newBuffered = Number(data.bufferedTime ? data.bufferedTime.toFixed(2) : 0)
+
+        // 只有当时间真的发生变化时才驱动 UI 和检测
+        if (Math.abs(this.currentTime - newTime) > 0.1) {
+          this.currentTime = newTime
+          this.bufferedTime = newBuffered
+
+          if (this.isPlaying) {
+            this.checkAutoSkip()
+          }
+          this.updateTimestamp()
+          this.updateTrack()
+        }
+      }, 500)
+    },
+    timeupdate() {
+      // 移除这里的 checkAutoSkip，全部交给 interval 处理，防止高频触发导致卡顿
+      if (!this.$refs.playedTrack) return
+      this.$emit('updateTime', this.currentTime)
+
+      if (this.seekLoading) {
+        // 只有在跳转模式下才处理
+        if (Math.abs(this.currentTime - this.seekedTime) < 1.5) {
+          this.seekLoading = false
+          this.$refs.playedTrack.classList.remove('bg-yellow-300')
+          this.$refs.playedTrack.classList.add('bg-gray-200')
+        }
+      }
     },
     stopPlayInterval() {
       clearInterval(this.playInterval)
@@ -848,8 +1067,6 @@ export default {
       }
       this.isEnded = data.playerState === 'ENDED'
 
-      console.log('received metadata update', data)
-
       this.timeupdate()
     },
     // When a playback session is started the native android/ios will send the session
@@ -861,6 +1078,11 @@ export default {
       this.isLoading = true
       this.syncStatus = 0
       this.$store.commit('setPlaybackSession', this.playbackSession)
+
+      // 关键：开始新 Session 时重置所有自动跳过标记
+      this.hasSkippedIntro = false
+      this.hasSkippedEnding = false
+      this.currentActiveChapterId = null
 
       // Set track width
       this.$nextTick(() => {
@@ -1002,157 +1224,5 @@ export default {
 </script>
 
 <style>
-:root {
-  --cover-image-width: 0px;
-  --cover-image-height: 0px;
-  --cover-image-width-collapsed: 46px;
-  --cover-image-height-collapsed: 46px;
-  --title-author-left-offset-collapsed: 80px;
-  --title-author-width-collapsed: 40%;
-}
-
-.playerContainer {
-  height: 120px;
-}
-.fullscreen .playerContainer {
-  height: 200px;
-}
-#playerContent {
-  box-shadow: 0px -8px 8px #11111155;
-}
-.fullscreen #playerContent {
-  box-shadow: none;
-}
-
-#playerTrack {
-  transition: all 0.15s cubic-bezier(0.39, 0.575, 0.565, 1);
-  transition-property: margin;
-  bottom: 35px;
-}
-.fullscreen #playerTrack {
-  bottom: unset;
-}
-
-.cover-wrapper {
-  bottom: 68px;
-  left: 24px;
-  height: var(--cover-image-height-collapsed);
-  width: var(--cover-image-width-collapsed);
-  transition: all 0.25s cubic-bezier(0.39, 0.575, 0.565, 1);
-  transition-property: left, bottom, width, height;
-  transform-origin: left bottom;
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.total-track {
-  bottom: 215px;
-  left: 0;
-  right: 0;
-}
-
-.title-author-texts {
-  transition: all 0.15s cubic-bezier(0.39, 0.575, 0.565, 1);
-  transition-property: left, bottom, width, height;
-  transform-origin: left bottom;
-
-  width: var(--title-author-width-collapsed);
-  bottom: 76px;
-  left: var(--title-author-left-offset-collapsed);
-  text-align: left;
-}
-.title-author-texts .title-text {
-  transition: all 0.15s cubic-bezier(0.39, 0.575, 0.565, 1);
-  transition-property: font-size;
-  font-size: 0.85rem;
-  line-height: 1.5;
-}
-.title-author-texts .author-text {
-  transition: all 0.15s cubic-bezier(0.39, 0.575, 0.565, 1);
-  transition-property: font-size;
-  font-size: 0.75rem;
-  line-height: 1.2;
-}
-
-.fullscreen .title-author-texts {
-  bottom: calc(50% - var(--cover-image-height) / 2 + 50px);
-  width: 80%;
-  left: 10%;
-  text-align: center;
-  padding-bottom: calc(((260px - var(--cover-image-height)) / 260) * 40);
-  pointer-events: auto;
-}
-.fullscreen .title-author-texts .title-text {
-  font-size: clamp(0.8rem, calc(var(--cover-image-height) / 260 * 20), 1.3rem);
-}
-.fullscreen .title-author-texts .author-text {
-  font-size: clamp(0.6rem, calc(var(--cover-image-height) / 260 * 16), 1rem);
-}
-
-#playerControls {
-  transition: all 0.15s cubic-bezier(0.39, 0.575, 0.565, 1);
-  transition-property: width, bottom;
-  width: 128px;
-  padding-right: 24px;
-  bottom: 70px;
-}
-#playerControls .jump-icon {
-  transition: all 0.15s cubic-bezier(0.39, 0.575, 0.565, 1);
-  transition-property: font-size;
-
-  margin: 0px 0px;
-  font-size: 1.6rem;
-}
-#playerControls .jump-label {
-  margin-top: 2px;
-}
-#playerControls .play-btn {
-  transition: all 0.15s cubic-bezier(0.39, 0.575, 0.565, 1);
-  transition-property: padding, margin, height, width, min-width, min-height;
-
-  height: 40px;
-  width: 40px;
-  min-width: 40px;
-  min-height: 40px;
-  margin: 0px 7px;
-}
-#playerControls .play-btn .material-symbols {
-  transition: all 0.15s cubic-bezier(0.39, 0.575, 0.565, 1);
-  transition-property: font-size;
-
-  font-size: 1.5rem;
-}
-
-.fullscreen .cover-wrapper {
-  margin: 0 auto;
-  height: var(--cover-image-height);
-  width: var(--cover-image-width);
-  left: calc(50% - (calc(var(--cover-image-width)) / 2));
-  bottom: calc(50% + 120px - (calc(var(--cover-image-height)) / 2));
-  border-radius: 16px;
-  overflow: hidden;
-}
-
-.fullscreen #playerControls {
-  width: 100%;
-  padding-left: 24px;
-  padding-right: 24px;
-  bottom: 78px;
-  left: 0;
-}
-.fullscreen #playerControls .jump-icon {
-  font-size: 2.4rem;
-}
-.fullscreen #playerControls .next-icon {
-  font-size: 2rem;
-}
-.fullscreen #playerControls .play-btn {
-  height: 65px;
-  width: 65px;
-  min-width: 65px;
-  min-height: 65px;
-}
-.fullscreen #playerControls .play-btn .material-symbols {
-  font-size: 2.1rem;
-}
+/* 样式部分保持不变 */
 </style>

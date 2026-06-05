@@ -68,6 +68,43 @@
       <p class="pl-4">{{ $strings.LabelAllowSeekingOnMediaControls }}</p>
     </div>
 
+    <!-- Auto Skip settings -->
+    <p class="uppercase text-xs font-semibold text-fg-muted mb-2 mt-10">自动跳过设置</p>
+    <div class="flex items-center py-3">
+      <div class="w-10 flex justify-center">
+        <ui-toggle-switch v-model="settings.autoSkipIntro" @input="saveSettings" />
+      </div>
+      <p class="pl-4">自动跳过片头</p>
+    </div>
+    <!-- 片头跳过秒数 -->
+    <div v-if="settings.autoSkipIntro" class="py-3 flex items-center border-b border-white border-opacity-10">
+      <p class="pr-4 w-36">片头跳过秒数</p>
+      <ui-text-input
+        type="number"
+        v-model="settings.skipIntroSec"
+        placeholder="秒数"
+        class="w-24"
+        @input="saveSettings"
+      />
+    </div>
+    <div class="flex items-center py-3">
+      <div class="w-10 flex justify-center">
+        <ui-toggle-switch v-model="settings.autoSkipEnding" @input="saveSettings" />
+      </div>
+      <p class="pl-4">自动跳过片尾</p>
+    </div>
+   <!-- 片尾跳过秒数 -->
+   <div v-if="settings.autoSkipEnding" class="py-3 flex items-center border-b border-white border-opacity-10">
+     <p class="pr-4 w-36">片尾跳过秒数</p>
+     <ui-text-input
+       type="number"
+       v-model="settings.skipEndingSec"
+       placeholder="秒数"
+       class="w-24"
+       @input="saveSettings"
+     />
+   </div>
+
     <!-- Sleep timer settings -->
     <template v-if="!isiOS">
       <p class="uppercase text-xs font-semibold text-fg-muted mb-2 mt-10">{{ $strings.HeaderSleepTimerSettings }}</p>
@@ -195,6 +232,7 @@ export default {
     return {
       loading: false,
       deviceData: null,
+      saveTimeout: null, // 新增：用于防抖
       showMoreMenuDialog: false,
       showSleepTimerLengthModal: false,
       showAutoSleepTimerRewindLengthModal: false,
@@ -218,6 +256,10 @@ export default {
         disableSleepTimerResetFeedback: false,
         enableSleepTimerAlmostDoneChime: false,
         autoSleepTimerAutoRewind: false,
+        autoSkipIntro: true,
+        autoSkipEnding: true,
+        skipIntroSec: 20,
+        skipEndingSec: 16,
         autoSleepTimerAutoRewindTime: 300000, // 5 minutes
         languageCode: 'en-us',
         downloadUsingCellular: 'ALWAYS',
@@ -453,6 +495,24 @@ export default {
       return null
     }
   },
+  beforeDestroy() {
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout)
+
+      // 退出前最后一次同步保存，不使用异步，确保执行
+      const skipSettings = {
+        autoSkipIntro: !!this.settings.autoSkipIntro,
+        autoSkipEnding: !!this.settings.autoSkipEnding,
+        skipIntroSec: Number(this.settings.skipIntroSec || 0),
+        skipEndingSec: Number(this.settings.skipEndingSec || 0)
+      }
+      this.$localStore.setSkipSettings(skipSettings)
+
+      // 这里的 dispatch 确保数据进入 Vuex，AudioPlayer 即使不销毁也能拿到最新值
+      this.$store.dispatch('updateSettings', this.settings)
+      console.log('[Settings] 页面销毁，执行最后保存')
+    }
+  },
   methods: {
     sleepTimerLengthModalSelection(value) {
       this.settings.sleepTimerLength = value
@@ -579,6 +639,14 @@ export default {
       this.settings.autoSleepTimer = !this.settings.autoSleepTimer
       this.saveSettings()
     },
+    toggleAutoSkipIntro() {
+      this.settings.autoSkipIntro = !this.settings.autoSkipIntro
+      this.saveSettings()
+    },
+    toggleAutoSkipEnding() {
+      this.settings.autoSkipEnding = !this.settings.autoSkipEnding
+      this.saveSettings()
+    },
     toggleAutoSleepTimerAutoRewind() {
       this.settings.autoSleepTimerAutoRewind = !this.settings.autoSleepTimerAutoRewind
       this.saveSettings()
@@ -629,53 +697,112 @@ export default {
       this.saveSettings()
     },
     async saveSettings() {
-      await this.$hapticsImpact()
-      const updatedDeviceData = await this.$db.updateDeviceSettings({ ...this.settings })
-      if (updatedDeviceData) {
-        this.$store.commit('setDeviceData', updatedDeviceData)
-        this.deviceData = updatedDeviceData
-        this.$setLanguageCode(updatedDeviceData.deviceSettings?.languageCode || 'en-us')
-        this.setDeviceSettings()
+      // 1. 清除之前的定时器，防止连续触发保存
+      if (this.saveTimeout) {
+        clearTimeout(this.saveTimeout)
       }
+
+      // 2. 开启 500ms 防抖
+      this.saveTimeout = setTimeout(async () => {
+        console.log('[Settings] 执行延迟保存...')
+
+        await this.$hapticsImpact()
+
+        // 提取跳过配置
+        const skipSettings = {
+          autoSkipIntro: !!this.settings.autoSkipIntro,
+          autoSkipEnding: !!this.settings.autoSkipEnding,
+          skipIntroSec: Number(this.settings.skipIntroSec || 0),
+          skipEndingSec: Number(this.settings.skipEndingSec || 0)
+        }
+
+        // 写入本地存储 (昂贵操作)
+        await this.$localStore.setSkipSettings(skipSettings)
+
+        // 处理其他设置的保存
+        const settingsToSave = { ...this.settings }
+        // 移除已经单独存过的字段，避免冗余
+        delete settingsToSave.autoSkipIntro
+        delete settingsToSave.autoSkipEnding
+        delete settingsToSave.skipIntroSec
+        delete settingsToSave.skipEndingSec
+
+        const updatedDeviceData = await this.$db.updateDeviceSettings(settingsToSave)
+
+        if (updatedDeviceData) {
+          if (!updatedDeviceData.deviceSettings) updatedDeviceData.deviceSettings = {}
+          // 合并跳过设置到全局对象中
+          Object.assign(updatedDeviceData.deviceSettings, skipSettings)
+
+          this.$store.commit('setDeviceData', updatedDeviceData)
+          this.deviceData = updatedDeviceData
+          this.$setLanguageCode(updatedDeviceData.deviceSettings?.languageCode || 'en-us')
+
+          // 这里的 setDeviceSettings 应该是你定义的用来同步 AudioPlayer 状态的方法
+          if (this.setDeviceSettings) this.setDeviceSettings(skipSettings)
+
+          console.log('[Settings] 保存成功')
+        }
+
+        this.saveTimeout = null
+      }, 500) // 500毫秒防抖
     },
-    setDeviceSettings() {
+    setDeviceSettings(skipSettingsOverride = null) {
       const deviceSettings = this.deviceData.deviceSettings || {}
+
       this.settings.disableAutoRewind = !!deviceSettings.disableAutoRewind
       this.settings.enableAltView = !!deviceSettings.enableAltView
       this.settings.allowSeekingOnMediaControls = !!deviceSettings.allowSeekingOnMediaControls
       this.settings.jumpForwardTime = deviceSettings.jumpForwardTime || 10
       this.settings.jumpBackwardsTime = deviceSettings.jumpBackwardsTime || 10
       this.settings.enableMp3IndexSeeking = !!deviceSettings.enableMp3IndexSeeking
-
       this.settings.lockOrientation = deviceSettings.lockOrientation || 'NONE'
       this.lockCurrentOrientation = this.settings.lockOrientation !== 'NONE'
       this.settings.hapticFeedback = deviceSettings.hapticFeedback || 'LIGHT'
-
       this.settings.disableShakeToResetSleepTimer = !!deviceSettings.disableShakeToResetSleepTimer
       this.settings.shakeSensitivity = deviceSettings.shakeSensitivity || 'MEDIUM'
       this.settings.autoSleepTimer = !!deviceSettings.autoSleepTimer
       this.settings.autoSleepTimerStartTime = deviceSettings.autoSleepTimerStartTime || '22:00'
       this.settings.autoSleepTimerEndTime = deviceSettings.autoSleepTimerEndTime || '06:00'
-      this.settings.sleepTimerLength = !isNaN(deviceSettings.sleepTimerLength) ? deviceSettings.sleepTimerLength : 900000 // 15 minutes
+      this.settings.sleepTimerLength = !isNaN(deviceSettings.sleepTimerLength) ? deviceSettings.sleepTimerLength : 900000
       this.settings.disableSleepTimerFadeOut = !!deviceSettings.disableSleepTimerFadeOut
       this.settings.disableSleepTimerResetFeedback = !!deviceSettings.disableSleepTimerResetFeedback
       this.settings.enableSleepTimerAlmostDoneChime = !!deviceSettings.enableSleepTimerAlmostDoneChime
-
       this.settings.autoSleepTimerAutoRewind = !!deviceSettings.autoSleepTimerAutoRewind
-      this.settings.autoSleepTimerAutoRewindTime = !isNaN(deviceSettings.autoSleepTimerAutoRewindTime) ? deviceSettings.autoSleepTimerAutoRewindTime : 300000 // 5 minutes
-
+      this.settings.autoSleepTimerAutoRewindTime = !isNaN(deviceSettings.autoSleepTimerAutoRewindTime) ? deviceSettings.autoSleepTimerAutoRewindTime : 300000
       this.settings.languageCode = deviceSettings.languageCode || 'en-us'
-
       this.settings.downloadUsingCellular = deviceSettings.downloadUsingCellular || 'ALWAYS'
       this.settings.streamingUsingCellular = deviceSettings.streamingUsingCellular || 'ALWAYS'
-
       this.settings.androidAutoBrowseLimitForGrouping = deviceSettings.androidAutoBrowseLimitForGrouping
       this.settings.androidAutoBrowseSeriesSequenceOrder = deviceSettings.androidAutoBrowseSeriesSequenceOrder || 'ASC'
+
+      if (skipSettingsOverride) {
+        this.settings.autoSkipIntro = !!skipSettingsOverride.autoSkipIntro
+        this.settings.autoSkipEnding = !!skipSettingsOverride.autoSkipEnding
+        this.settings.skipIntroSec = skipSettingsOverride.skipIntroSec
+        this.settings.skipEndingSec = skipSettingsOverride.skipEndingSec
+      } else {
+        this.settings.autoSkipIntro = !!deviceSettings.autoSkipIntro
+        this.settings.autoSkipEnding = !!deviceSettings.autoSkipEnding
+        this.settings.skipIntroSec = deviceSettings.skipIntroSec || 20
+        this.settings.skipEndingSec = deviceSettings.skipEndingSec || 16
+      }
     },
     async init() {
       this.loading = true
       this.theme = (await this.$localStore.getTheme()) || 'dark'
-      this.deviceData = await this.$db.getDeviceData()
+
+      const deviceData = await this.$db.getDeviceData()
+      const skipSettings = await this.$localStore.getSkipSettings()
+
+      if (deviceData) {
+        if (!deviceData.deviceSettings) deviceData.deviceSettings = {}
+        if (skipSettings) {
+          Object.assign(deviceData.deviceSettings, skipSettings)
+        }
+      }
+
+      this.deviceData = deviceData
       this.$store.commit('setDeviceData', this.deviceData)
       this.setDeviceSettings()
       this.loading = false

@@ -5,6 +5,24 @@ class LocalStorage {
     this.vuexStore = vuexStore
   }
 
+  async setSkipSettings(settings) {
+    try {
+      await Preferences.set({ key: 'skipSettings', value: JSON.stringify(settings) })
+    } catch (error) {
+      console.error('[LocalStorage] Failed to set skip settings', error)
+    }
+  }
+
+  async getSkipSettings() {
+    try {
+      const obj = await Preferences.get({ key: 'skipSettings' }) || {}
+      return obj.value ? JSON.parse(obj.value) : null
+    } catch (error) {
+      console.error('[LocalStorage] Failed to get skip settings', error)
+      return null
+    }
+  }
+
   async setUserSettings(settings) {
     try {
       await Preferences.set({ key: 'userSettings', value: JSON.stringify(settings) })
@@ -146,8 +164,8 @@ class LocalStorage {
 
   /**
    * Get preference value by key
-   * 
-   * @param {string} key 
+   *
+   * @param {string} key
    * @returns {Promise<string>}
    */
   async getPreferenceByKey(key) {

@@ -27,7 +27,13 @@ export const state = () => ({
   isNetworkListenerInit: false,
   serverSettings: null,
   lastBookshelfScrollData: {},
-  lastItemScrollData: {}
+  lastItemScrollData: {},
+  // 自动跳过全局配置 (默认值，如果 deviceSettings 中不存在则使用这些)
+  autoSkipIntro: true,
+  autoSkipEnding: true,
+  defaultIntroSec: 20,
+  defaultEndingSec: 16,
+  bookSkipConfig: {}, // {bookId:{intro:20,ending:60}}
 })
 
 export const getters = {
@@ -99,6 +105,25 @@ export const getters = {
     const majorVersion = parseInt(versionParts[0])
     const minorVersion = parseInt(versionParts[1])
     return majorVersion < 2 || (majorVersion == 2 && minorVersion < 17)
+  },
+  // 获取自动跳过配置，优先从持久化的 deviceSettings 中读取
+  getAutoSkipSettings: (state) => {
+    const ds = state.deviceData?.deviceSettings || {}
+    return {
+      autoSkipIntro: ds.autoSkipIntro !== undefined ? ds.autoSkipIntro : state.autoSkipIntro,
+      autoSkipEnding: ds.autoSkipEnding !== undefined ? ds.autoSkipEnding : state.autoSkipEnding,
+      skipIntroSec: Number(ds.skipIntroSec !== undefined ? ds.skipIntroSec : state.defaultIntroSec),
+      skipEndingSec: Number(ds.skipEndingSec !== undefined ? ds.skipEndingSec : state.defaultEndingSec)
+    }
+  },
+  // 获取单本书的跳过配置
+  getBookSkipSetting: (state, getters) => (bookId) => {
+    const global = getters.getAutoSkipSettings
+    const custom = state.bookSkipConfig[bookId]
+    return {
+      intro: (custom && custom.intro > 0) ? custom.intro : global.skipIntroSec,
+      ending: (custom && custom.ending > 0) ? custom.ending : global.skipEndingSec
+    }
   }
 }
 
@@ -210,5 +235,12 @@ export const mutations = {
   setServerSettings(state, val) {
     state.serverSettings = val
     this.$localStore.setServerSettings(state.serverSettings)
+  },
+  SET_SKIP_INTRO_SWITCH(state, val) { state.autoSkipIntro = val },
+  SET_SKIP_END_SWITCH(state, val) { state.autoSkipEnding = val },
+  SET_DEFAULT_INTRO(state, num) { state.defaultIntroSec = Number(num) || 0 },
+  SET_DEFAULT_END(state, num) { state.defaultEndingSec = Number(num) || 0 },
+  SET_BOOK_SKIP(state, { bookId, intro, ending }) {
+    state.bookSkipConfig[bookId] = {intro, ending}
   }
 }
